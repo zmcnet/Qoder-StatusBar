@@ -3,6 +3,7 @@
  * 2) overlay.js 语法正确
  * 3) 指标引擎对最近会话算出合理值（没有会话日志时跳过） */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -86,6 +87,38 @@ if (!latest) {
     ok(m.ttft === null || m.ttft >= 0, "首字非负: " + m.ttft);
     ok(m.requests >= 0, "请求数: " + m.requests);
   }
+}
+
+/* 3b) 内部轮次不能顶替用户轮次：压缩轮的 cache_read=0 不能显示成 0% */
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "qoder-statusbar-test-"));
+try {
+  const sid = "22222222-2222-4222-8222-222222222222";
+  const turn = "11111111-1111-4111-8111-111111111111";
+  const segDir = path.join(tmp, "logs", "sessions", "test-slug", sid, "segments");
+  fs.mkdirSync(segDir, { recursive: true });
+  const lines = [
+    { type: "turn.started", ts: "2026-10-26T21:00:00.000+08:00", turn_id: turn, data: { model: "test-model" } },
+    { type: "model.request.started", ts: "2026-10-26T21:00:01.000+08:00", turn_id: turn, request_id: "req-real", data: { model: "test-model" } },
+    { type: "model.response.completed", ts: "2026-10-26T21:00:03.000+08:00", request_id: "req-real", data: { input_tokens: 1000, output_tokens: 100, cache_read_input_tokens: 900 } },
+    { type: "turn.started", ts: "2026-10-26T21:00:10.000+08:00", turn_id: turn + "-fork-compact", data: { model: "test-model" } },
+    { type: "model.request.started", ts: "2026-10-26T21:00:11.000+08:00", turn_id: turn + "-fork-compact", request_id: "req-compact", data: { model: "test-model" } },
+    { type: "model.response.completed", ts: "2026-10-26T21:00:20.000+08:00", request_id: "req-compact", data: { input_tokens: 5000, output_tokens: 500, cache_read_input_tokens: 0 } },
+  ];
+  fs.writeFileSync(
+    path.join(segDir, "2026-10-26T21-00-00-000+08-00-test.jsonl"),
+    lines.map((l) => JSON.stringify(l)).join("\n") + "\n"
+  );
+  process.env.QODER_HOME = tmp;
+  const s = computeMetrics(sid);
+  ok(!!s, "内部轮次过滤：算出指标");
+  if (s) {
+    ok(s.cache === 90, "内部轮次过滤：缓存取真实轮 90%（实际 " + s.cache + "）");
+    ok(s.outTokens === 100, "内部轮次过滤：输出取真实轮 100（实际 " + s.outTokens + "）");
+    ok(s.requests === 1, "内部轮次过滤：请求数取真实轮 1（实际 " + s.requests + "）");
+  }
+} finally {
+  delete process.env.QODER_HOME;
+  try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
 }
 
 console.log(failed ? "\n失败 " + failed + " 项" : "\n全部通过");

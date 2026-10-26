@@ -272,6 +272,19 @@ function turnStats(s, turn) {
   };
 }
 
+/* 过滤内部轮次：这些不是用户发起的对话轮，而是客户端在后台做的事，
+ * 读数不能拿它们充数（典型症状：压缩上下文后缓存显示 0%、速度变成压缩任务的速度）。
+ *   - <uuid>-fork-compact   上下文压缩
+ *   - skill-evolution-*     技能演化
+ *   - memory-fork-*         记忆整理 */
+function isRealTurn(t) {
+  const id = String((t && t.turnId) || "");
+  if (/-fork-compact$/i.test(id)) return false;
+  if (/^skill-evolution-/i.test(id)) return false;
+  if (/^memory-fork-/i.test(id)) return false;
+  return true;
+}
+
 export function computeMetrics(sid, now = Date.now()) {
   const files = sessionFiles(sid);
   if (!files.length) return null;
@@ -306,7 +319,8 @@ export function computeMetrics(sid, now = Date.now()) {
   prune(s);
 
   const turns = s.turns;
-  const cur = turns.length ? turns[turns.length - 1] : null;
+  const realTurns = turns.filter(isRealTurn);
+  const cur = realTurns.length ? realTurns[realTurns.length - 1] : null;
   const curStats = cur ? turnStats(s, cur) : null;
 
   /* 逐项回退：当前轮没有就找更早的轮，保证三项任何时候都有值 */
@@ -315,8 +329,8 @@ export function computeMetrics(sid, now = Date.now()) {
       const v = getter(curStats);
       if (v !== null && v !== undefined) return v;
     }
-    for (let i = turns.length - 2; i >= 0; i--) {
-      const v = getter(turnStats(s, turns[i]));
+    for (let i = realTurns.length - 2; i >= 0; i--) {
+      const v = getter(turnStats(s, realTurns[i]));
       if (v !== null && v !== undefined) return v;
     }
     return null;
