@@ -4,3 +4,6 @@
 # 批处理与 VBScript 必须是 CRLF，cmd.exe 对 LF-only 的 .cmd 容易出怪问题
 *.cmd text eol=crlf
 *.vbs text eol=crlf
+
+# 发布包由 git archive 从 HEAD 生成，打包脚本本身不该进包
+/tools/** export-ignore

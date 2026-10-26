@@ -2,6 +2,18 @@
 
 本项目的所有重要变更都记录在这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.4] - 2026-10-27
+
+### 修复
+
+- **发布包里的调试脚本比仓库旧**：README 的文件表说 `runtime/cdp.mjs` / `runtime/shot.mjs`
+  会跟着 `port.txt` 换端口、带超时不再永久挂住，但 v1.0.3 的包是在那次改动之前打的，
+  装到机器上的是写死 9222、连不上会永久等待的旧版。文件本身不影响注入器运行
+  （没有任何运行时引用），但照着 README 敲命令的人会撞上已经修掉的那个坑。
+- 新增 `tools/pack.mjs`：发布包只从 `git archive HEAD` 生成（工作区未提交的改动进不了包），
+  打包前校验 `package.json` 与 `.qoder-plugin/plugin.json` 版本一致，
+  并打印 size + sha256 给安装器钉住。`tools/**` 通过 `export-ignore` 不进包。
+
 ## [1.0.3] - 2026-10-27
 
 ### 修复
