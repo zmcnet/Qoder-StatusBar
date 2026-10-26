@@ -33,7 +33,7 @@ Qoder 的插件体系（`@qoder/plugin-api`）只能贡献 skills / commands / h
 
 ## 一键安装（推荐）
 
-到 [Releases](https://cnb.cool/kybll/Qoder-Status-TypeBar/-/releases) 下载
+到 [Releases](https://cnb.cool/kybll/Qoder-StatusBar/-/releases) 下载
 `Install-Qoder-Status-TypeBar.exe`，双击运行：
 
 1. 自动找到 Qoder 安装目录（也支持 `--qoder-dir "D:\Apps\Qoder"` 手动指定）

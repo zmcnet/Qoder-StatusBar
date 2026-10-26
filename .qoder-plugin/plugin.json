@@ -7,8 +7,8 @@
   "author": {
     "name": "kybll"
   },
-  "homepage": "https://cnb.cool/kybll/Qoder-Status-TypeBar",
-  "repository": "https://cnb.cool/kybll/Qoder-Status-TypeBar.git",
+  "homepage": "https://cnb.cool/kybll/Qoder-StatusBar",
+  "repository": "https://cnb.cool/kybll/Qoder-StatusBar.git",
   "logo": "./assets/logo.svg",
   "keywords": [
     "qoder-plugin",
