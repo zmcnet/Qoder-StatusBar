@@ -5,12 +5,47 @@
  */
 import { spawn, execSync } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.QODER_CDP_PORT || "9222";
+
+/* 端口优先级：环境变量 > port.txt（上次实际用的端口）> 9222。
+ * port.txt 很重要：9222 被别的进程占着时启动器会自动换端口，并把换过的端口记下来，
+ * 否则 --inject / 下次启动会连错端口。 */
+function resolvePort() {
+  const candidates = [process.env.QODER_CDP_PORT];
+  try {
+    candidates.push(fs.readFileSync(path.join(HERE, "port.txt"), "utf8").trim());
+  } catch {}
+  candidates.push("9222");
+  for (const c of candidates) {
+    const n = parseInt(c, 10);
+    if (Number.isInteger(n) && n > 1024 && n < 65536) return n;
+  }
+  return 9222;
+}
+let PORT = resolvePort();
+
+/* 检测端口能不能 bind：被 TIME_WAIT 残留或别的程序占着就换一个。
+ * 只看 cdpAlive 不够 —— 端口被占时 Qoder 会静默地不带调试端口启动。 */
+function portAvailable(port) {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once("error", () => resolve(false));
+    srv.once("listening", () => srv.close(() => resolve(true)));
+    srv.listen(port, "127.0.0.1");
+  });
+}
+
+async function pickFreePort(base) {
+  for (let p = base; p < base + 20; p++) {
+    if (await portAvailable(p)) return p;
+  }
+  return base;
+}
 /* 安装器会把实际安装路径写进 qoder-path.txt（别人的机器不一定装在默认目录） */
 function qoderExe() {
   if (process.env.QODER_EXE) return process.env.QODER_EXE;
@@ -58,9 +93,9 @@ function nodeEnv() {
   return { ...process.env };
 }
 
-async function cdpAlive() {
+async function cdpAlive(port = PORT) {
   try {
-    const r = await fetch(`http://127.0.0.1:${PORT}/json/version`, {
+    const r = await fetch(`http://127.0.0.1:${port}/json/version`, {
       signal: AbortSignal.timeout(2000),
     });
     return r.ok;
@@ -150,32 +185,45 @@ if (args.includes("--stop")) {
 }
 
 if (args.includes("--inject")) {
+  /* port.txt 可能记着上次自动换过的端口；如果 Qoder 这次是在 9222 上，回退过去 */
+  if (!(await cdpAlive()) && PORT !== 9222 && (await cdpAlive(9222))) PORT = 9222;
   log("注入器已启动，端口 " + PORT + "，pid " + startInjector());
   process.exit(0);
 }
 
 if (!(await cdpAlive())) {
-  if (qoderRunning() && process.env.QODER_FORCE !== "1") {
-    log(
-      "检测到 Qoder 已在运行，但没有开启调试端口。\n" +
-        "请完全退出 Qoder（托盘也要退出）后重新执行本脚本。"
-    );
-    process.exit(1);
-  }
-  if (!fs.existsSync(QODER_EXE)) {
-    log("找不到 Qoder.exe：" + QODER_EXE);
-    process.exit(1);
-  }
-  log("正在启动 Qoder（带调试端口 " + PORT + "）…");
-  const child = spawn(QODER_EXE, ["--remote-debugging-port=" + PORT], {
-    detached: true,
-    stdio: "ignore",
-    env: cleanEnv(),
-  });
-  child.unref();
-  for (let i = 0; i < 20; i++) {
-    await sleep(1000);
-    if (await cdpAlive()) break;
+  /* 换过端口后 Qoder 可能又用回 9222，先探一下再决定要不要重启 */
+  if (PORT !== 9222 && (await cdpAlive(9222))) {
+    PORT = 9222;
+  } else {
+    if (qoderRunning() && process.env.QODER_FORCE !== "1") {
+      log(
+        "检测到 Qoder 已在运行，但没有开启调试端口。\n" +
+          "请完全退出 Qoder（托盘也要退出）后重新执行本脚本。"
+      );
+      process.exit(1);
+    }
+    if (!fs.existsSync(QODER_EXE)) {
+      log("找不到 Qoder.exe：" + QODER_EXE);
+      process.exit(1);
+    }
+    /* 9222 被残留进程/其他程序占着时换一个能 bind 的端口，
+     * 否则 Qoder 会静默启动、调试端口根本不开。 */
+    PORT = await pickFreePort(PORT);
+    try {
+      fs.writeFileSync(path.join(HERE, "port.txt"), String(PORT));
+    } catch {}
+    log("正在启动 Qoder（带调试端口 " + PORT + "）…");
+    const child = spawn(QODER_EXE, ["--remote-debugging-port=" + PORT], {
+      detached: true,
+      stdio: "ignore",
+      env: cleanEnv(),
+    });
+    child.unref();
+    for (let i = 0; i < 20; i++) {
+      await sleep(1000);
+      if (await cdpAlive()) break;
+    }
   }
 }
 
