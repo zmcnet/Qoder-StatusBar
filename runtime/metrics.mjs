@@ -62,41 +62,48 @@ function readNewLines(reader, file) {
 }
 
 /* ---------- 找会话的 segment 文件 ---------- */
+/* 注意：缓存必须按 sid 分别存。早先的实现每次刷新只扫描「当前这次请求的 sid」，
+ * 然后把整个 map 换掉 —— 多会话/多标签页时 A 刚查完，B 的缓存就被 A 冲掉了，
+ * 结果是几个会话轮流拿到 null（或一直拿到同一个会话的数据）。 */
 let sessionCache = { at: 0, map: new Map() };
+
+function scanSessionFiles(sid) {
+  const root = path.join(logsRoot(), "sessions");
+  let slugs = [];
+  try {
+    slugs = fs.readdirSync(root, { withFileTypes: true });
+  } catch {}
+  const all = [];
+  for (const s of slugs) {
+    if (!s.isDirectory()) continue;
+    const segDir = path.join(root, s.name, sid, "segments");
+    let files = [];
+    try {
+      files = fs.readdirSync(segDir).filter((f) => f.endsWith(".jsonl"));
+    } catch {
+      continue;
+    }
+    for (const f of files) all.push(path.join(segDir, f));
+  }
+  return all.sort((a, b) => {
+    try {
+      return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs;
+    } catch {
+      return 0;
+    }
+  });
+}
 
 function sessionFiles(sid) {
   const now = Date.now();
+  /* 每 3 秒整体失效一次：新 segment 文件（runtime 重启）能被发现 */
   if (now - sessionCache.at > 3000) {
-    const map = new Map();
-    const root = path.join(logsRoot(), "sessions");
-    let slugs = [];
-    try {
-      slugs = fs.readdirSync(root, { withFileTypes: true });
-    } catch {}
-    for (const s of slugs) {
-      if (!s.isDirectory()) continue;
-      const segDir = path.join(root, s.name, sid, "segments");
-      let files = [];
-      try {
-        files = fs.readdirSync(segDir).filter((f) => f.endsWith(".jsonl"));
-      } catch {
-        continue;
-      }
-      if (!files.length) continue;
-      const full = files
-        .map((f) => path.join(segDir, f))
-        .sort((a, b) => {
-          try {
-            return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs;
-          } catch {
-            return 0;
-          }
-        });
-      map.set(sid, full);
-    }
-    sessionCache = { at: now, map };
+    sessionCache = { at: now, map: new Map() };
   }
-  return sessionCache.map.get(sid) || [];
+  if (sessionCache.map.has(sid)) return sessionCache.map.get(sid);
+  const files = scanSessionFiles(sid);
+  sessionCache.map.set(sid, files);
+  return files;
 }
 
 /* ---------- 状态机 ---------- */

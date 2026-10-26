@@ -12,7 +12,7 @@
   "use strict";
   if (window.__qoderStatusOverlay) return;
 
-  var VERSION = "2026-10-26-11";
+  var VERSION = "2026-10-26-12";
   var ID = "qoder-statusbar-module";
   var state = { payload: window.__qoderStatusPayload || null };
 
@@ -77,6 +77,10 @@
     if (!a) return;
     var el = document.getElementById(ID);
     var d = state.payload || {};
+    /* 切会话时渲染页还是同一个，payload 里可能还挂着上一个会话的数字。
+     * 带上 sid 比对：对不上就当没数据，显示占位符，绝不把 A 会话的读数挂在 B 上。 */
+    var curSid = (location.hash.match(/\/chat\/([0-9a-fA-F-]{8,64})/) || [])[1] || null;
+    if (d.sid && curSid && d.sid !== curSid) d = {};
 
     /* 可见性跟着内置上下文控件走：新会话里上下文控件本来就不显示，我们也不显示；
      * 老会话生成中控件会临时卸载，但那时有数据，照样显示。 */

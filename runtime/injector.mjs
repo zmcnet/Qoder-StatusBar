@@ -172,6 +172,7 @@ async function tick() {
       if (!probe || !probe.sid) continue;
       const m = computeMetrics(probe.sid);
       const payload = {
+        sid: probe.sid,
         speed: m ? m.speed : null,
         e2e: m ? m.e2e : null,
         ttft: m ? m.ttft : null,
