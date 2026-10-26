@@ -80,7 +80,8 @@ if (!latest) {
   const m = computeMetrics(latest.sid);
   ok(!!m, "会话 " + latest.sid.slice(0, 8) + " 算出指标");
   if (m) {
-    ok(m.speed === null || (m.speed > 0 && m.speed < 100000), "速度合理: " + m.speed);
+    /* 0 是合法的：本轮可能被中止/没有任何输出 token */
+    ok(m.speed === null || (m.speed >= 0 && m.speed < 100000), "速度合理: " + m.speed);
     ok(m.cache === null || (m.cache >= 0 && m.cache <= 100), "缓存率在 0~100: " + m.cache);
     ok(m.ttft === null || m.ttft >= 0, "首字非负: " + m.ttft);
     ok(m.requests >= 0, "请求数: " + m.requests);
