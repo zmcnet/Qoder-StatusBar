@@ -30,6 +30,7 @@
 - **隐藏窗口启动**：`launch-hidden.vbs` + 桌面快捷方式，不弹 cmd 窗口；输出重定向到
   `logs/launcher.log`，出错弹提示框指到日志。
 - **一键安装器**：[Qoder-Status-TypeBar-AutoInstaller](https://cnb.cool/kybll/Qoder-Status-TypeBar-AutoInstaller)
-  提供 `Install-Qoder-Status-TypeBar.exe`：自动定位 Qoder、下载校验、备份并替换快捷方式、
+  提供 [`Install-Qoder-Status-TypeBar.exe`](https://cnb.cool/kybll/Qoder-Status-TypeBar-AutoInstaller/-/releases/download/v1.0.0/Install-Qoder-Status-TypeBar.exe)：
+  自动定位 Qoder、下载校验、备份并替换快捷方式、
   无 Node 的机器用 `Qoder.exe` 硬链接出 Node v24 运行时。
 - 零依赖：只用 Node 内置模块，无需 `npm install`。

@@ -15,6 +15,9 @@
 
 悬停里还有模型名、端到端速度对照、本轮请求数、本轮输出 token、距上次请求多久。
 
+> **一键安装**：下载 [Install-Qoder-Status-TypeBar.exe](https://cnb.cool/kybll/Qoder-Status-TypeBar-AutoInstaller/-/releases/download/v1.0.0/Install-Qoder-Status-TypeBar.exe)
+> 双击运行即可，详见下方[一键安装](#一键安装推荐)。
+
 ## 为什么是注入而不是插件
 
 Qoder 的插件体系（`@qoder/plugin-api`）只能贡献 skills / commands / hooks / MCP / agents，
@@ -33,14 +36,14 @@ Qoder 的插件体系（`@qoder/plugin-api`）只能贡献 skills / commands / h
 
 ## 一键安装（推荐）
 
-到 [Releases](https://cnb.cool/kybll/Qoder-StatusBar/-/releases) 下载
-`Install-Qoder-Status-TypeBar.exe`，双击运行：
+下载 **[Install-Qoder-Status-TypeBar.exe](https://cnb.cool/kybll/Qoder-Status-TypeBar-AutoInstaller/-/releases/download/v1.0.0/Install-Qoder-Status-TypeBar.exe)**，
+双击运行（安装器源码：[AutoInstaller](https://cnb.cool/kybll/Qoder-Status-TypeBar-AutoInstaller)）：
 
 1. 自动找到 Qoder 安装目录（也支持 `--qoder-dir "D:\Apps\Qoder"` 手动指定）
 2. 从 release 下载插件包并校验 SHA256
 3. 装到 `%USERPROFILE%\.qoder\qoder-statusbar`
 4. **备份**并替换桌面 / 开始菜单里的 Qoder 快捷方式（备份名
-   `Qoder (original launcher).lnk`），以后双击它就会带调试端口启动并自动拉起注入器
+   `Qoder（原始启动）.lnk`），以后双击它就会带调试端口启动并自动拉起注入器
 5. 机器上没有 Node 也能用：安装器会用 `Qoder.exe` 的硬链接做一个 Node v24 运行时
 6. 卸载：`Install-Qoder-Status-TypeBar.exe --uninstall`
 
