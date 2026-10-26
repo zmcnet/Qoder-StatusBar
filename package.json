@@ -1,0 +1,15 @@
+{
+  "name": "@qoder-plugin/status-typebar",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Live usage readout for the Qoder desktop composer: generation speed, cache hit rate, time-to-first-token and context usage.",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "panel": "node runtime/panel.mjs",
+    "test": "node runtime/test/test-runner.mjs"
+  }
+}

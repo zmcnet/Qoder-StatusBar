@@ -1,0 +1,6 @@
+# 仓库内统一 LF，避免跨平台行尾差异
+* text=auto eol=lf
+
+# 批处理与 VBScript 必须是 CRLF，cmd.exe 对 LF-only 的 .cmd 容易出怪问题
+*.cmd text eol=crlf
+*.vbs text eol=crlf
