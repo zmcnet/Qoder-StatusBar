@@ -11,14 +11,23 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.QODER_CDP_PORT || "9222";
-const QODER_EXE =
-  process.env.QODER_EXE ||
-  path.join(
+/* 安装器会把实际安装路径写进 qoder-path.txt（别人的机器不一定装在默认目录） */
+function qoderExe() {
+  if (process.env.QODER_EXE) return process.env.QODER_EXE;
+  try {
+    const saved = fs
+      .readFileSync(path.join(HERE, "qoder-path.txt"), "utf8")
+      .trim();
+    if (saved && fs.existsSync(saved)) return saved;
+  } catch {}
+  return path.join(
     process.env.LOCALAPPDATA || "",
     "Programs",
     "Qoder",
     "Qoder.exe"
   );
+}
+const QODER_EXE = qoderExe();
 const PIDFILE = path.join(HERE, "injector.pid");
 const LOGDIR = path.join(HERE, "logs");
 const LAUNCH_LOG = path.join(LOGDIR, "launcher.log");
@@ -40,6 +49,13 @@ function cleanEnv() {
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
   return env;
+}
+
+/* 反过来：如果本进程就是靠 Electron 二进制（Qoder.exe 或它的硬链接）当 node
+ * 跑的（机器上没装 Node 时的兜底），子进程必须原样保留 ELECTRON_RUN_AS_NODE，
+ * 否则它会把 injector.mjs 当成客户端去启动。原样继承即可。 */
+function nodeEnv() {
+  return { ...process.env };
 }
 
 async function cdpAlive() {
@@ -107,7 +123,7 @@ function startInjector() {
     {
       detached: true,
       stdio: ["ignore", out, out],
-      env: cleanEnv(),
+      env: nodeEnv(),
     }
   );
   child.unref();
