@@ -114,8 +114,9 @@ function sessionFiles(sid) {
 
 /* ---------- 状态机 ---------- */
 const state = new Map(); /* sid -> {segReader, runReader, requests, completes, turns, headers} */
+const STATE_TTL_MS = 30 * 60 * 1000;
 
-function getState(sid) {
+function getState(sid, now) {
   let s = state.get(sid);
   if (!s) {
     s = {
@@ -132,19 +133,48 @@ function getState(sid) {
       mainTurnIds: new Set(),
       subTurnIds: new Set(),
       headers: new Map(), /* rid -> 首字时刻 */
+      lastUse: now,
     };
     state.set(sid, s);
+    return s;
   }
+  s.lastUse = now;
   return s;
 }
 
-/* 请求表会随会话增长，砍掉最老的，保留最近 5000 条足够回退用 */
+let lastSweep = 0;
+/* 关掉很久的会话把状态留在内存里没有意义。淘汰后下次进来会整份重读日志，
+ * 结果一样，只是多花一次 IO。 */
+function sweepStates(now) {
+  if (now - lastSweep < 60000) return;
+  lastSweep = now;
+  for (const [sid, s] of state) {
+    if (now - s.lastUse > STATE_TTL_MS) state.delete(sid);
+  }
+}
+
+/* 请求表会随会话增长，砍掉最老的，保留最近 5000 条足够回退用。
+ * headers 和 turn_id 集合同样要封顶：注入器跟着 Qoder 常驻好几天，
+ * 不封顶就是每发一次请求、每开一轮都往内存里堆一条，永远不释放。 */
+function pruneMap(m, limit) {
+  while (m.size > limit) {
+    const oldest = m.keys().next().value;
+    if (oldest === undefined) break;
+    m.delete(oldest);
+  }
+}
+
 function prune(s) {
   while (s.requests.size > 5000) {
     const oldest = s.requests.keys().next().value;
     s.requests.delete(oldest);
     s.completes.delete(oldest);
   }
+  pruneMap(s.headers, 5000);
+  /* 只用来判断「这个 turn_id 是不是只当过子代理」，需要它的一定在近 200 轮内，
+   * 按插入顺序淘汰最老的不会影响在用的 */
+  pruneMap(s.mainTurnIds, 2000);
+  pruneMap(s.subTurnIds, 2000);
   while (s.turns.length > 200) s.turns.shift();
 }
 
@@ -313,7 +343,8 @@ function isRealTurn(t) {
 export function computeMetrics(sid, now = Date.now()) {
   const files = sessionFiles(sid);
   if (!files.length) return null;
-  const s = getState(sid);
+  sweepStates(now);
+  const s = getState(sid, now);
 
   /* 一个会话可能跨多个 runtime 进程（桌面端每次重启 agent 就换一个 segment 文件），
    * 全部读进来合并：早先的轮次才能作为「上一轮」回退来源。
@@ -359,16 +390,29 @@ export function computeMetrics(sid, now = Date.now()) {
     realTurns.push(t);
   }
   const cur = realTurns.length ? realTurns[realTurns.length - 1] : null;
-  const curStats = cur ? turnStats(s, cur) : null;
+  /* 每轮的统计要扫一遍请求表，四项指标又各取一次 —— 不缓存的话长会话里
+   * 一次刷新要扫几百遍（常驻进程，白烧 CPU）。 */
+  const statsMemo = new Map();
+  function statsOf(turn) {
+    let v = statsMemo.get(turn.turnId);
+    if (v === undefined) {
+      v = turnStats(s, turn);
+      statsMemo.set(turn.turnId, v);
+    }
+    return v;
+  }
+  const curStats = cur ? statsOf(cur) : null;
 
-  /* 逐项回退：当前轮没有就找更早的轮，保证三项任何时候都有值 */
+  /* 逐项回退：当前轮没有就找更早的轮，保证三项任何时候都有值。
+   * 只往前找 30 轮：再早的读数是几小时前的，挂在这儿只会让人误判当前状态。 */
   function pick(getter) {
     if (curStats) {
       const v = getter(curStats);
       if (v !== null && v !== undefined) return v;
     }
-    for (let i = realTurns.length - 2; i >= 0; i--) {
-      const v = getter(turnStats(s, realTurns[i]));
+    const floor = Math.max(0, realTurns.length - 31);
+    for (let i = realTurns.length - 2; i >= floor; i--) {
+      const v = getter(statsOf(realTurns[i]));
       if (v !== null && v !== undefined) return v;
     }
     return null;

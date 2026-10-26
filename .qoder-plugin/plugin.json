@@ -1,7 +1,7 @@
 {
   "name": "qoder-status-typebar",
   "displayName": "Qoder Status Bar",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Live usage readout for the Qoder desktop composer: generation speed, cache hit rate, time-to-first-token and context usage, injected into the chat input bar next to the built-in context widget.",
   "descriptionZh": "Qoder 桌面端输入框底栏的实时用量读数：生成速度、缓存命中率、首字延迟与上下文占用，注入在内置上下文控件左侧。",
   "author": {

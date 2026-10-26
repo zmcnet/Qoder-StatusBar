@@ -178,5 +178,53 @@ try {
   try { fs.rmSync(tmp2, { recursive: true, force: true }); } catch {}
 }
 
+/* 场景 5：回退窗口封顶 —— 注入器常驻，长会话里不能为了找一个读数把几百轮全扫一遍；
+ * 同时太旧的读数（几十轮之前）挂在这儿只会误导，宁可用占位符。 */
+const tmp3 = fs.mkdtempSync(path.join(os.tmpdir(), "qoder-statusbar-test-"));
+try {
+  const goodTurn = "55555555-2222-4222-8222-555555555555";
+  function pad(n) { return String(n).padStart(2, "0"); }
+  function emptyTurns(count, startMin) {
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      const ts = "2026-10-26T21:" + pad(startMin + i) + ":00.000+08:00";
+      out.push({
+        type: "turn.started",
+        ts,
+        turn_id: "66666666-" + pad(startMin + i) + "-4222-8222-555555555555",
+        data: { model: "test-model", is_subagent: false },
+      });
+    }
+    return out;
+  }
+  const good = [
+    { type: "turn.started", ts: "2026-10-26T21:00:00.000+08:00", turn_id: goodTurn, data: { model: "test-model" } },
+    { type: "model.request.started", ts: "2026-10-26T21:00:01.000+08:00", turn_id: goodTurn, request_id: "eeeeeee5", data: { model: "test-model" } },
+    { type: "model.response.completed", ts: "2026-10-26T21:00:03.000+08:00", request_id: "eeeeeee5", data: { input_tokens: 1000, output_tokens: 100, cache_read_input_tokens: 900 } },
+  ];
+  const cases = [
+    { sid: "77777777-1111-4111-8111-777777777777", empties: 31, expectSpeed: null },
+    { sid: "77777777-2222-4222-8222-777777777777", empties: 6, expectSpeed: 100 },
+  ];
+  for (const c of cases) {
+    const segDir = path.join(tmp3, "logs", "sessions", "test-slug", c.sid, "segments");
+    fs.mkdirSync(segDir, { recursive: true });
+    const lines = good.concat(emptyTurns(c.empties, 1));
+    fs.writeFileSync(
+      path.join(segDir, "2026-10-26T21-00-00-000+08-00-test.jsonl"),
+      lines.map((l) => JSON.stringify(l)).join("\n") + "\n"
+    );
+  }
+  process.env.QODER_HOME = tmp3;
+  const far = computeMetrics(cases[0].sid);
+  const near = computeMetrics(cases[1].sid);
+  ok(!!far && far.speed === null, "回退封顶：31 轮以外的好数据不再借用（实际 " + (far && far.speed) + "）");
+  /* 这里没有 qodercli.log（取不到首字时刻），所以速度走端到端口径：100 tok / 2s = 50 */
+  ok(!!near && near.speed === 50, "回退窗口内：6 轮前的好数据照常借用（实际 " + (near && near.speed) + "）");
+} finally {
+  delete process.env.QODER_HOME;
+  try { fs.rmSync(tmp3, { recursive: true, force: true }); } catch {}
+}
+
 console.log(failed ? "\n失败 " + failed + " 项" : "\n全部通过");
 process.exit(failed ? 1 : 0);
