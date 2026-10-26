@@ -121,5 +121,62 @@ try {
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
 }
 
+/* 3c) 重复的 turn.started / 子代理轮 / 零输出轮：
+ *     - 同一 turn_id 被重复记录（runtime 重启、子代理复用父轮 id）不能把首字起点冲掉
+ *     - 只以 is_subagent 身份出现过的 turn_id 不能当成当前轮
+ *     - 当前轮一个 token 都没产出时，速度必须回退到上一轮，不能显示 0 */
+const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), "qoder-statusbar-test-"));
+try {
+  const sid = "33333333-3333-4333-8333-333333333333";
+  const t1 = "11111111-2222-4222-8222-111111111111";
+  const t2 = "11111111-3333-4333-8333-111111111111";
+  const sub = "11111111-4444-4444-8444-111111111111";
+  const segDir = path.join(tmp2, "logs", "sessions", "test-slug", sid, "segments");
+  fs.mkdirSync(segDir, { recursive: true });
+  const lines = [
+    /* 上一轮：100 tok / 1s = 100 tok/s，缓存 90%，首字 2s */
+    { type: "turn.started", ts: "2026-10-26T21:00:00.000+08:00", turn_id: t1, data: { model: "test-model" } },
+    { type: "model.request.started", ts: "2026-10-26T21:00:01.000+08:00", turn_id: t1, request_id: "aaaaaaa1", data: { model: "test-model" } },
+    { type: "model.response.completed", ts: "2026-10-26T21:00:03.000+08:00", request_id: "aaaaaaa1", data: { input_tokens: 1000, output_tokens: 100, cache_read_input_tokens: 900 } },
+    /* 当前轮：两个请求都零 token；turn.started 被重复记录，第二次晚了 30s */
+    { type: "turn.started", ts: "2026-10-26T21:10:00.000+08:00", turn_id: t2, data: { model: "test-model", is_subagent: false } },
+    { type: "model.request.started", ts: "2026-10-26T21:10:01.000+08:00", turn_id: t2, request_id: "bbbbbbb2", data: { model: "test-model" } },
+    { type: "model.response.completed", ts: "2026-10-26T21:10:02.000+08:00", request_id: "bbbbbbb2", data: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 } },
+    { type: "model.request.started", ts: "2026-10-26T21:10:03.000+08:00", turn_id: t2, request_id: "ccccccc3", data: { model: "test-model" } },
+    { type: "model.response.completed", ts: "2026-10-26T21:10:04.000+08:00", request_id: "ccccccc3", data: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 } },
+    { type: "turn.started", ts: "2026-10-26T21:10:30.000+08:00", turn_id: t2, data: { model: "test-model", is_subagent: true } },
+    /* 只以子代理身份出现的轮，时间更晚，不能成为当前轮 */
+    { type: "turn.started", ts: "2026-10-26T21:20:00.000+08:00", turn_id: sub, data: { model: "test-model", is_subagent: true } },
+    { type: "model.request.started", ts: "2026-10-26T21:20:01.000+08:00", turn_id: sub, request_id: "ddddddd4", data: { model: "test-model" } },
+    { type: "model.response.completed", ts: "2026-10-26T21:20:03.000+08:00", request_id: "ddddddd4", data: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 } },
+  ];
+  /* 首字时间从 run 日志来，跟 segment 同名 */
+  const runDir = path.join(tmp2, "logs", "runs", "2026-10-26T21-00-00-000+08-00-test");
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(runDir, "qodercli.log"),
+    [
+      "2026-10-26T21:00:02.000+08:00 INFO qoderRequestId=aaaaaaa1 phase=headers_received",
+      "2026-10-26T21:10:01.000+08:00 INFO qoderRequestId=bbbbbbb2 phase=headers_received",
+    ].join("\n") + "\n"
+  );
+  fs.writeFileSync(
+    path.join(segDir, "2026-10-26T21-00-00-000+08-00-test.jsonl"),
+    lines.map((l) => JSON.stringify(l)).join("\n") + "\n"
+  );
+  process.env.QODER_HOME = tmp2;
+  const s = computeMetrics(sid);
+  ok(!!s, "重复轮次去重：算出指标");
+  if (s) {
+    ok(s.speed === 100, "零输出轮回退上一轮速度 100（实际 " + s.speed + "）");
+    ok(s.cache === 90, "零输出轮回退上一轮缓存 90%（实际 " + s.cache + "）");
+    ok(s.ttft === 1, "重复 turn.started 用最早的起点算首字 1s（实际 " + s.ttft + "）");
+    ok(s.requests === 2, "当前轮请求数 2（实际 " + s.requests + "）");
+  }
+} finally {
+  delete process.env.QODER_HOME;
+  try { fs.rmSync(tmp2, { recursive: true, force: true }); } catch {}
+}
+
 console.log(failed ? "\n失败 " + failed + " 项" : "\n全部通过");
 process.exit(failed ? 1 : 0);

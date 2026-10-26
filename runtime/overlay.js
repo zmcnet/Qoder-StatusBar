@@ -12,7 +12,7 @@
   "use strict";
   if (window.__qoderStatusOverlay) return;
 
-  var VERSION = "2026-10-26-12";
+  var VERSION = "2026-10-26-14";
   var ID = "qoder-statusbar-module";
   var state = { payload: window.__qoderStatusPayload || null };
 
@@ -33,15 +33,18 @@
   function composer() {
     return document.querySelector('[data-conversation-composer="true"]');
   }
+  function visible(el) {
+    return !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+  }
 
   /* 挂载点：内置控件优先（紧贴它左边），控件不在时逐级回退，保证常驻 */
   function anchor() {
     var btn = ctxButton();
-    if (btn && btn.parentElement) {
+    if (btn && visible(btn) && btn.parentElement) {
       return { parent: btn.parentElement, before: btn, inGroup: true };
     }
     var strip = ctxStrip();
-    if (strip) {
+    if (strip && visible(strip)) {
       var group = null;
       for (var i = 0; i < strip.children.length; i++) {
         if (strip.children[i].classList.contains("ml-auto")) {
@@ -52,7 +55,7 @@
       return { parent: strip, before: group, inGroup: false };
     }
     var box = composer();
-    if (box) return { parent: box, before: null, inGroup: false };
+    if (box && visible(box)) return { parent: box, before: null, inGroup: false };
     return null;
   }
 
@@ -73,20 +76,24 @@
   }
 
   function render() {
-    var a = anchor();
-    if (!a) return;
     var el = document.getElementById(ID);
     var d = state.payload || {};
     /* 切会话时渲染页还是同一个，payload 里可能还挂着上一个会话的数字。
      * 带上 sid 比对：对不上就当没数据，显示占位符，绝不把 A 会话的读数挂在 B 上。 */
     var curSid = (location.hash.match(/\/chat\/([0-9a-fA-F-]{8,64})/) || [])[1] || null;
-    if (d.sid && curSid && d.sid !== curSid) d = {};
+    /* curSid 为空（新会话/非聊天页）也要清空，否则旧会话的 payload 会被当成本页数据 */
+    if (d.sid && d.sid !== curSid) d = {};
 
     /* 可见性跟着内置上下文控件走：新会话里上下文控件本来就不显示，我们也不显示；
      * 老会话生成中控件会临时卸载，但那时有数据，照样显示。 */
     var hasData =
       hasValue(d.speed) || hasValue(d.cache) || hasValue(d.ttft);
-    if (!ctxButton() && !hasData) {
+    if (!visible(ctxButton()) && !hasData) {
+      if (el) el.style.display = "none";
+      return;
+    }
+    var a = anchor();
+    if (!a) {
       if (el) el.style.display = "none";
       return;
     }
@@ -166,7 +173,7 @@
     return {
       sid: m ? m[1] : null,
       ctxPct: pct,
-      hasCtx: !!btn,
+      hasCtx: !!(btn && visible(btn)),
       hasHost: !!a,
       moduleInDom: !!el,
       moduleVisible: !!(el && el.style.display !== "none"),

@@ -17,7 +17,7 @@
 
 悬停里还有模型名、端到端速度对照、本轮请求数、本轮输出 token、距上次请求多久。
 
-> **一键安装**：下载 [Install-Qoder-Status-TypeBar.exe](https://cnb.cool/kybll/Qoder-Status-TypeBar-AutoInstaller/-/releases/download/v1.0.1/Install-Qoder-Status-TypeBar.exe)
+> **一键安装**：下载 [Install-Qoder-Status-TypeBar.exe](https://cnb.cool/kybll/Qoder-Status-TypeBar-AutoInstaller/-/releases/download/v1.0.2/Install-Qoder-Status-TypeBar.exe)
 > 双击运行即可，详见下方[一键安装](#一键安装推荐)。
 
 ## 为什么是注入而不是插件
@@ -38,7 +38,7 @@ Qoder 的插件体系（`@qoder/plugin-api`）只能贡献 skills / commands / h
 
 ## 一键安装（推荐）
 
-下载 **[Install-Qoder-Status-TypeBar.exe](https://cnb.cool/kybll/Qoder-Status-TypeBar-AutoInstaller/-/releases/download/v1.0.1/Install-Qoder-Status-TypeBar.exe)**，
+下载 **[Install-Qoder-Status-TypeBar.exe](https://cnb.cool/kybll/Qoder-Status-TypeBar-AutoInstaller/-/releases/download/v1.0.2/Install-Qoder-Status-TypeBar.exe)**，
 双击运行（安装器源码：[AutoInstaller](https://cnb.cool/kybll/Qoder-Status-TypeBar-AutoInstaller)）：
 
 1. 自动找到 Qoder 安装目录（也支持 `--qoder-dir "D:\Apps\Qoder"` 手动指定）

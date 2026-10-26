@@ -48,10 +48,16 @@ function readNewLines(reader, file) {
     fd = fs.openSync(file, "r");
     const len = st.size - reader.offset;
     const buf = Buffer.alloc(len);
-    fs.readSync(fd, buf, 0, len, reader.offset);
-    reader.offset = st.size;
+    /* readSync 不保证一次读满（大文件/被杀毒软件扫的瞬间会短读），循环读 */
+    let got = 0;
+    while (got < len) {
+      const n = fs.readSync(fd, buf, got, len - got, reader.offset + got);
+      if (!n) break;
+      got += n;
+    }
+    reader.offset += got;
     /* 上次没读完的半行接到这次前面，末尾半行留到下次 */
-    const parts = (reader.pending + buf.toString("utf8")).split("\n");
+    const parts = (reader.pending + buf.subarray(0, got).toString("utf8")).split("\n");
     reader.pending = parts.pop();
     return parts.filter((l) => l.trim());
   } catch {
@@ -118,6 +124,13 @@ function getState(sid) {
       requests: new Map(), /* rid -> {ts, turnId, model} */
       completes: new Map(), /* rid -> {ts, out, inp, cr} */
       turns: [], /* {ts, turnId, model} */
+      /* turn_id 会在两类事件里出现，必须分开记：
+       *   - 用户主轮 turn.started（is_subagent=false）
+       *   - 子代理 turn.started：有的平台直接复用父轮 turn_id（is_subagent=true）
+       * 只靠 turn_id 去重分不出「同一个轮被重复记录」和「子代理轮」，
+       * 所以同时记录两个集合，后面按「只当过子代理的 id」剔除。 */
+      mainTurnIds: new Set(),
+      subTurnIds: new Set(),
       headers: new Map(), /* rid -> 首字时刻 */
     };
     state.set(sid, s);
@@ -163,10 +176,17 @@ function parseSegmentLine(s, line) {
       cc: d.cache_creation_input_tokens || 0,
     });
   } else if (type === "turn.started") {
+    const turnId = o.turn_id || null;
+    /* 没有 turn_id 的启动事件没法跟请求对上，丢弃 */
+    if (!turnId) return;
+    const sub = !!(o.data && o.data.is_subagent);
+    if (sub) s.subTurnIds.add(turnId);
+    else s.mainTurnIds.add(turnId);
     const t = {
       ts: Date.parse(o.ts),
-      turnId: o.turn_id || null,
+      turnId,
       model: o.data && o.data.model ? o.data.model : null,
+      sub,
     };
     /* 多个 segment 文件按时间顺序并进来，turns 要保持按时间排 */
     if (!s.turns.length || s.turns[s.turns.length - 1].ts <= t.ts) s.turns.push(t);
@@ -241,18 +261,23 @@ function turnStats(s, turn) {
 
   const genMs = ok.reduce((a, r) => a + (r.end - r.first), 0);
   const genOut = ok.reduce((a, r) => a + r.out, 0);
-  const tpsGen = genMs > 0 ? genOut / (genMs / 1000) : null;
+  /* 没有任何输出 token 的轮（请求被中止 / provider 不回报 token）不能算成 0 tok/s，
+   * 那会把「没有数据」显示成「速度 0」，并顶掉上一轮的真实读数。 */
+  const tpsGen = genOut > 0 && genMs > 0 ? genOut / (genMs / 1000) : null;
 
   const e2eMs = done.reduce((a, r) => a + (r.end - r.start), 0);
   const outAll = done.reduce((a, r) => a + r.out, 0);
-  const tpsE2e = e2eMs > 0 ? outAll / (e2eMs / 1000) : null;
+  const tpsE2e = outAll > 0 && e2eMs > 0 ? outAll / (e2eMs / 1000) : null;
 
   const last = done.length ? done[done.length - 1] : null;
   const tpsLast =
-    last && last.first && last.end > last.first
+    last && last.out > 0 && last.first && last.end > last.first
       ? last.out / ((last.end - last.first) / 1000)
       : null;
-  const tpsLastE2E = last ? last.out / ((last.end - last.start) / 1000) : null;
+  const tpsLastE2E =
+    last && last.out > 0 && last.end > last.start
+      ? last.out / ((last.end - last.start) / 1000)
+      : null;
 
   const cache = last && last.inp > 0 ? (last.cr / last.inp) * 100 : null;
   const ttft = ttftOf(rows, turn ? turn.ts : 0);
@@ -318,8 +343,21 @@ export function computeMetrics(sid, now = Date.now()) {
   }
   prune(s);
 
-  const turns = s.turns;
-  const realTurns = turns.filter(isRealTurn);
+  /* 同一个 turn_id 会被重复记录：runtime 重启、子代理复用父轮 id、多个窗口打开
+   * 同一会话时都会再发一次 turn.started。这里按 turn_id 去重，保留最早的那次
+   * （首字要拿用户真正发起本轮的时刻算），并剔除「只以子代理身份出现过」的轮。 */
+  const seenTurnIds = new Set();
+  const realTurns = [];
+  const sortedTurns = s.turns
+    .filter((t) => t && t.turnId && isFinite(t.ts))
+    .sort((a, b) => a.ts - b.ts);
+  for (const t of sortedTurns) {
+    if (seenTurnIds.has(t.turnId)) continue;
+    seenTurnIds.add(t.turnId);
+    if (!isRealTurn(t)) continue;
+    if (s.subTurnIds.has(t.turnId) && !s.mainTurnIds.has(t.turnId)) continue;
+    realTurns.push(t);
+  }
   const cur = realTurns.length ? realTurns[realTurns.length - 1] : null;
   const curStats = cur ? turnStats(s, cur) : null;
 

@@ -3,7 +3,7 @@
  *   node launcher.mjs --stop     结束注入器
  *   node launcher.mjs --inject   只拉起注入器（Qoder 已经带端口在跑时）
  */
-import { spawn, execSync } from "node:child_process";
+import { spawn, execSync, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
@@ -28,6 +28,13 @@ function resolvePort() {
   return 9222;
 }
 let PORT = resolvePort();
+
+/* 实际连上的端口写回 port.txt：下次启动/--inject 才不会拿着过期端口去连 */
+function rememberPort(p) {
+  try {
+    fs.writeFileSync(path.join(HERE, "port.txt"), String(p));
+  } catch {}
+}
 
 /* 检测端口能不能 bind：被 TIME_WAIT 残留或别的程序占着就换一个。
  * 只看 cdpAlive 不够 —— 端口被占时 Qoder 会静默地不带调试端口启动。 */
@@ -116,14 +123,35 @@ function qoderRunning() {
   }
 }
 
+/* pid 文件可能过期，PID 还可能被系统复用。杀之前确认命令行确实是 injector.mjs，
+ * 否则 --stop 有可能误杀一个刚好拿到同一 PID 的无关进程。 */
+function pidIsInjector(pid) {
+  try {
+    const out = execFileSync(
+      "powershell",
+      [
+        "-NoProfile",
+        "-Command",
+        `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`,
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10000 }
+    );
+    return /injector\.mjs/i.test(out);
+  } catch {
+    return false;
+  }
+}
+
 function killOldInjectors() {
   /* 只能有一个注入器：多个会互相灌 overlay，页面上的数字来回跳 */
   try {
     if (fs.existsSync(PIDFILE)) {
       const pid = parseInt(fs.readFileSync(PIDFILE, "utf8").trim(), 10);
-      try {
-        process.kill(pid);
-      } catch {}
+      if (Number.isInteger(pid) && pid > 0 && pidIsInjector(pid)) {
+        try {
+          process.kill(pid);
+        } catch {}
+      }
       fs.unlinkSync(PIDFILE);
     }
   } catch {}
@@ -169,9 +197,15 @@ function startInjector() {
 function stopInjector() {
   try {
     const pid = parseInt(fs.readFileSync(PIDFILE, "utf8").trim(), 10);
-    process.kill(pid);
-    fs.unlinkSync(PIDFILE);
-    log("注入器已结束 (pid " + pid + ")");
+    if (Number.isInteger(pid) && pid > 0 && pidIsInjector(pid)) {
+      process.kill(pid);
+      log("注入器已结束 (pid " + pid + ")");
+    } else {
+      log("pid 文件已过期（进程不存在或不是注入器），不动它");
+    }
+    try {
+      fs.unlinkSync(PIDFILE);
+    } catch {}
   } catch (e) {
     log("没有正在运行的注入器");
   }
@@ -186,7 +220,17 @@ if (args.includes("--stop")) {
 
 if (args.includes("--inject")) {
   /* port.txt 可能记着上次自动换过的端口；如果 Qoder 这次是在 9222 上，回退过去 */
-  if (!(await cdpAlive()) && PORT !== 9222 && (await cdpAlive(9222))) PORT = 9222;
+  if (!(await cdpAlive()) && PORT !== 9222 && (await cdpAlive(9222))) {
+    PORT = 9222;
+    rememberPort(PORT);
+  }
+  if (!(await cdpAlive())) {
+    log(
+      "CDP 端口 " + PORT + " 连不上，Qoder 可能没有以调试模式启动。\n" +
+        "请先完全退出 Qoder（托盘也要退出），再用桌面快捷方式启动。"
+    );
+    process.exit(1);
+  }
   log("注入器已启动，端口 " + PORT + "，pid " + startInjector());
   process.exit(0);
 }
@@ -195,6 +239,7 @@ if (!(await cdpAlive())) {
   /* 换过端口后 Qoder 可能又用回 9222，先探一下再决定要不要重启 */
   if (PORT !== 9222 && (await cdpAlive(9222))) {
     PORT = 9222;
+    rememberPort(PORT);
   } else {
     if (qoderRunning() && process.env.QODER_FORCE !== "1") {
       log(
@@ -210,9 +255,7 @@ if (!(await cdpAlive())) {
     /* 9222 被残留进程/其他程序占着时换一个能 bind 的端口，
      * 否则 Qoder 会静默启动、调试端口根本不开。 */
     PORT = await pickFreePort(PORT);
-    try {
-      fs.writeFileSync(path.join(HERE, "port.txt"), String(PORT));
-    } catch {}
+    rememberPort(PORT);
     log("正在启动 Qoder（带调试端口 " + PORT + "）…");
     const child = spawn(QODER_EXE, ["--remote-debugging-port=" + PORT], {
       detached: true,
